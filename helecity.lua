@@ -5,28 +5,30 @@ local UserInputService = game:GetService("UserInputService")
 local player = Players.LocalPlayer
 
 local HeavyGravity = false
-local CarFly = false
-local FLY_SPEED = 80
+local CarFly       = false
+local FLY_SPEED    = 80
 local MAX_FLY_HEIGHT = 80
-local InstantHeal = false
-local NoClip = false
+local InstantHeal  = false
+local NoClip       = false
+local ButtonsLocked = false
+local ZondActive   = false  -- true = зонд стоит на земле
 
 local isMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 
 local Window = Rayfield:CreateWindow({
     Name = "Helicity Hub",
     LoadingTitle = "Storm Chaser Script",
-    LoadingSubtitle = "v6 — Settings+",
+    LoadingSubtitle = "v7 — Zond + Lock",
     Theme = "Default",
     DisableRayfieldPrompts = true,
     DisableBuildWarnings = true,
 })
 
-local MainTab = Window:CreateTab("Main", 4483362458)
+local MainTab     = Window:CreateTab("Main",     4483362458)
 local SettingsTab = Window:CreateTab("Settings", 4483362458)
 
 -- ========================
--- GUI — контейнер (перетаскивается целиком)
+-- ScreenGui
 -- ========================
 
 local screenGui = Instance.new("ScreenGui")
@@ -35,6 +37,54 @@ screenGui.ResetOnSpawn = false
 screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 screenGui.Parent = player.PlayerGui
 
+-- ========================
+-- УНИВЕРСАЛЬНАЯ ФУНКЦИЯ ПЕРЕТАСКИВАНИЯ
+-- Применяется к любому Frame/TextButton
+-- ========================
+
+local function makeDraggable(gui)
+    local dragging  = false
+    local dragInput = nil
+    local dragStart = nil
+    local startPos  = nil
+
+    gui.InputBegan:Connect(function(input)
+        if ButtonsLocked then return end
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+            dragging  = true
+            dragStart = input.Position
+            startPos  = gui.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+
+    gui.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement
+        or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging and not ButtonsLocked then
+            local delta = input.Position - dragStart
+            gui.Position = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + delta.X,
+                startPos.Y.Scale, startPos.Y.Offset + delta.Y
+            )
+        end
+    end)
+end
+
+-- ========================
+-- КОНТЕЙНЕР FLY + ENABLE
+-- ========================
+
 local btnContainer = Instance.new("Frame")
 btnContainer.Name = "BtnContainer"
 btnContainer.Size = UDim2.new(0, 110, 0, 104)
@@ -42,6 +92,8 @@ btnContainer.Position = UDim2.new(0.5, -55, 0, 10)
 btnContainer.BackgroundTransparency = 1
 btnContainer.Visible = false
 btnContainer.Parent = screenGui
+
+makeDraggable(btnContainer)
 
 local function makeInnerBtn(text, yOffset, color)
     local btn = Instance.new("TextButton")
@@ -66,47 +118,44 @@ end
 
 local enableBtn, enableStroke = makeInnerBtn("⚡ ENABLE", 0,  Color3.fromRGB(255, 200, 50))
 enableBtn.Visible = false
-local flyBtn, flyStroke       = makeInnerBtn("✈  FLY",   56, Color3.fromRGB(80,  255, 80))
+local flyBtn, flyStroke       = makeInnerBtn("✈  FLY",   56, Color3.fromRGB(80, 255, 80))
 
 -- ========================
--- DRAG
+-- КНОПКА ZOND (отдельная, draggable)
 -- ========================
 
-local dragging = false
-local dragInput = nil
-local dragStart = nil
-local startPos  = nil
+local zondBtn = Instance.new("TextButton")
+zondBtn.Name = "ZondBtn"
+zondBtn.Size = UDim2.new(0, 110, 0, 48)
+zondBtn.Position = UDim2.new(0.5, -55, 0, 130)
+zondBtn.BackgroundColor3 = Color3.fromRGB(18, 18, 18)
+zondBtn.BackgroundTransparency = 0.15
+zondBtn.TextColor3 = Color3.fromRGB(255, 60, 60)
+zondBtn.Text = "📡  ZOND"
+zondBtn.FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.Bold)
+zondBtn.TextSize = 15
+zondBtn.Visible = false
+zondBtn.Parent = screenGui
 
-btnContainer.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1
-    or input.UserInputType == Enum.UserInputType.Touch then
-        dragging  = true
-        dragStart = input.Position
-        startPos  = btnContainer.Position
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                dragging = false
-            end
-        end)
-    end
-end)
+local zondCorner = Instance.new("UICorner")
+zondCorner.CornerRadius = UDim.new(0, 12)
+zondCorner.Parent = zondBtn
 
-btnContainer.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement
-    or input.UserInputType == Enum.UserInputType.Touch then
-        dragInput = input
-    end
-end)
+local zondStroke = Instance.new("UIStroke")
+zondStroke.Color = Color3.fromRGB(255, 60, 60)
+zondStroke.Thickness = 2
+zondStroke.Parent = zondBtn
 
-UserInputService.InputChanged:Connect(function(input)
-    if input == dragInput and dragging then
-        local delta = input.Position - dragStart
-        btnContainer.Position = UDim2.new(
-            startPos.X.Scale, startPos.X.Offset + delta.X,
-            startPos.Y.Scale, startPos.Y.Offset + delta.Y
-        )
-    end
-end)
+makeDraggable(zondBtn)
+
+local function setZondGreen()
+    zondBtn.TextColor3 = Color3.fromRGB(80, 255, 80)
+    zondStroke.Color   = Color3.fromRGB(80, 255, 80)
+end
+local function setZondRed()
+    zondBtn.TextColor3 = Color3.fromRGB(255, 60, 60)
+    zondStroke.Color   = Color3.fromRGB(255, 60, 60)
+end
 
 -- ========================
 -- FLY COLORS
@@ -198,7 +247,7 @@ local function disableDamageProtection()
 end
 
 -- ========================
--- INSTANT HEAL (отдельно от fly)
+-- INSTANT HEAL
 -- ========================
 
 local instantHealConn = nil
@@ -218,7 +267,7 @@ local function stopInstantHeal()
 end
 
 -- ========================
--- NOCLIP (только пока CarFly активен)
+-- NOCLIP
 -- ========================
 
 local noClipConn = nil
@@ -238,7 +287,6 @@ end
 
 local function stopNoClip()
     if noClipConn then noClipConn:Disconnect() noClipConn = nil end
-    -- Восстанавливаем коллизии
     local vehicle = getCurrentVehicle()
     if vehicle then
         for _, part in ipairs(getAllParts(vehicle)) do
@@ -246,6 +294,150 @@ local function stopNoClip()
         end
     end
 end
+
+-- ========================
+-- ZOND (probe) — логика
+-- Helicity: инструмент "Probe"/"Sonde"/"TurtleProbe" в рюкзаке
+-- Ставим через EquipTool + Activate по позиции HRP
+-- Убираем — ищем в Workspace объект с Creator == player
+-- ========================
+
+local deployedProbe = nil  -- ссылка на поставленный Model зонда
+
+-- Имена тула зонда в Helicity (перебираем все варианты)
+local PROBE_TOOL_NAMES = {"Probe", "Sonde", "TurtleProbe", "Zond", "WeatherProbe"}
+
+local function findProbeTool()
+    local char = player.Character
+    -- сначала ищем в руках (уже экипирован)
+    if char then
+        for _, name in ipairs(PROBE_TOOL_NAMES) do
+            local t = char:FindFirstChild(name)
+            if t and t:IsA("Tool") then return t end
+        end
+    end
+    -- потом в рюкзаке
+    for _, name in ipairs(PROBE_TOOL_NAMES) do
+        local t = player.Backpack:FindFirstChild(name)
+        if t and t:IsA("Tool") then return t end
+    end
+    return nil
+end
+
+local function findDeployedProbeInWorkspace()
+    -- Ищем Model с тегом/именем зонда принадлежащий нашему игроку
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("Model") then
+            for _, name in ipairs(PROBE_TOOL_NAMES) do
+                if obj.Name == name or obj.Name == (name.."Model") then
+                    local creator = obj:FindFirstChild("Creator") or obj:FindFirstChild("Owner")
+                    if creator and (creator.Value == player or creator.Value == player.Name) then
+                        return obj
+                    end
+                    -- если Creator нет — берём ближайший к нашей позиции зонд
+                    local char, _, hrp = getCharacter()
+                    if hrp then
+                        local primary = obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")
+                        if primary and (primary.Position - hrp.Position).Magnitude < 20 then
+                            return obj
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local function placeZond()
+    local char, hum, hrp = getCharacter()
+    if not char or not hum or not hrp then
+        Rayfield:Notify({Title="Helicity Hub", Content="Персонаж не найден!", Duration=3})
+        return
+    end
+
+    local tool = findProbeTool()
+    if not tool then
+        Rayfield:Notify({Title="Helicity Hub", Content="Зонд не найден в инвентаре!\nВозьми Probe из арсенала.", Duration=4})
+        return
+    end
+
+    -- Экипируем тул
+    pcall(function()
+        hum:EquipTool(tool)
+    end)
+    task.wait(0.15)
+
+    -- Активируем (имитируем клик по земле под ногами)
+    local equipped = char:FindFirstChildOfClass("Tool")
+    if equipped then
+        -- Пробуем через RemoteEvent внутри тула
+        local re = equipped:FindFirstChildOfClass("RemoteEvent")
+        if re then
+            pcall(function()
+                re:FireServer(hrp.Position - Vector3.new(0, 3, 0))
+            end)
+        end
+        -- Также активируем напрямую
+        pcall(function() equipped:Activate() end)
+        task.wait(0.3)
+    end
+
+    ZondActive = true
+    setZondGreen()
+
+    -- Запоминаем объект если появился
+    task.wait(0.5)
+    deployedProbe = findDeployedProbeInWorkspace()
+end
+
+local function removeZond()
+    -- Пытаемся найти и убрать зонд из мира
+    if deployedProbe and deployedProbe.Parent then
+        -- В Helicity зонд убирается повторной активацией или proximity
+        local primary = deployedProbe.PrimaryPart or deployedProbe:FindFirstChildWhichIsA("BasePart")
+        if primary then
+            -- Телепортируем игрока к зонду и кликаем
+            local char, hum, hrp = getCharacter()
+            if hrp then
+                local oldCF = hrp.CFrame
+                hrp.CFrame = primary.CFrame + Vector3.new(0, 3, 0)
+                task.wait(0.1)
+                local tool = findProbeTool() or char:FindFirstChildOfClass("Tool")
+                if tool then
+                    pcall(function() hum:EquipTool(tool) end)
+                    task.wait(0.1)
+                    pcall(function()
+                        local equipped = char:FindFirstChildOfClass("Tool")
+                        if equipped then equipped:Activate() end
+                    end)
+                end
+                task.wait(0.2)
+                hrp.CFrame = oldCF
+            end
+        end
+    end
+
+    -- Если зонд всё ещё стоит — ищем снова
+    task.wait(0.3)
+    local found = findDeployedProbeInWorkspace()
+    if found and found.Parent then
+        -- Последний вариант: уничтожаем локально (только клиент)
+        pcall(function() found:Destroy() end)
+    end
+
+    deployedProbe = nil
+    ZondActive = false
+    setZondRed()
+end
+
+zondBtn.MouseButton1Click:Connect(function()
+    if ZondActive then
+        removeZond()
+    else
+        placeZond()
+    end
+end)
 
 -- ========================
 -- CAR FLY
@@ -259,7 +451,7 @@ local flyPrimary = nil
 local function startFly()
     local vehicle, seat = getCurrentVehicle()
     if not vehicle then
-        Rayfield:Notify({ Title = "Helicity Hub", Content = "Сначала сядь в машину!", Duration = 3 })
+        Rayfield:Notify({Title="Helicity Hub", Content="Сначала сядь в машину!", Duration=3})
         CarFly = false
         setFlyRed()
         return
@@ -328,7 +520,6 @@ local function startFly()
         if rayResult then groundY = rayResult.Position.Y end
 
         local relativeHeight = currentY - groundY
-
         local vy = dir.Y * FLY_SPEED
         if relativeHeight >= MAX_FLY_HEIGHT and dir.Y > 0 then vy = 0 end
         if relativeHeight <= 2 and dir.Y < 0 then vy = 0 end
@@ -352,13 +543,8 @@ end
 
 local function toggleFly()
     CarFly = not CarFly
-    if CarFly then
-        setFlyGreen()
-        startFly()
-    else
-        setFlyRed()
-        stopFly()
-    end
+    if CarFly then setFlyGreen() startFly()
+    else setFlyRed() stopFly() end
 end
 
 flyBtn.MouseButton1Click:Connect(toggleFly)
@@ -373,7 +559,7 @@ local gravityForces = {}
 local function enableHeavyGravity()
     local vehicle = getCurrentVehicle()
     if not vehicle then
-        Rayfield:Notify({ Title = "Helicity Hub", Content = "Сначала сядь в машину!", Duration = 3 })
+        Rayfield:Notify({Title="Helicity Hub", Content="Сначала сядь в машину!", Duration=3})
         HeavyGravity = false
         return
     end
@@ -387,7 +573,7 @@ local function enableHeavyGravity()
         bf.Name = "_HeavyGrav"
         bf.Force = Vector3.new(0, -part:GetMass() * 9000, 0)
         bf.Parent = part
-        table.insert(gravityForces, { force = bf, part = part })
+        table.insert(gravityForces, {force = bf, part = part})
     end
 
     local primary = vehicle.PrimaryPart or vehicle:FindFirstChildWhichIsA("BasePart")
@@ -442,13 +628,8 @@ end
 
 enableBtn.MouseButton1Click:Connect(function()
     HeavyGravity = not HeavyGravity
-    if HeavyGravity then
-        setEnableGreen()
-        enableHeavyGravity()
-    else
-        setEnableYellow()
-        disableHeavyGravity()
-    end
+    if HeavyGravity then setEnableGreen() enableHeavyGravity()
+    else setEnableYellow() disableHeavyGravity() end
 end)
 
 -- ========================
@@ -466,9 +647,7 @@ MainTab:CreateToggle({
             setFlyGreen()
             startFly()
         else
-            if not enableBtn.Visible then
-                btnContainer.Visible = false
-            end
+            if not enableBtn.Visible then btnContainer.Visible = false end
             CarFly = false
             setFlyRed()
             stopFly()
@@ -489,10 +668,20 @@ MainTab:CreateToggle({
             enableHeavyGravity()
         else
             enableBtn.Visible = false
-            if not CarFly then
-                btnContainer.Visible = false
-            end
+            if not CarFly then btnContainer.Visible = false end
             disableHeavyGravity()
+        end
+    end,
+})
+
+MainTab:CreateToggle({
+    Name = "Показать кнопку Зонд",
+    CurrentValue = false,
+    Flag = "ZondBtnToggle",
+    Callback = function(val)
+        zondBtn.Visible = val
+        if not val and ZondActive then
+            removeZond()
         end
     end,
 })
@@ -500,6 +689,15 @@ MainTab:CreateToggle({
 -- ========================
 -- RAYFIELD — SETTINGS
 -- ========================
+
+SettingsTab:CreateToggle({
+    Name = "Закрепить кнопки (запретить перетаскивание)",
+    CurrentValue = false,
+    Flag = "LockBtns",
+    Callback = function(val)
+        ButtonsLocked = val
+    end,
+})
 
 SettingsTab:CreateToggle({
     Name = "Мгновенное восстановление HP",
@@ -512,16 +710,13 @@ SettingsTab:CreateToggle({
 })
 
 SettingsTab:CreateToggle({
-    Name = "Нет коллизий при полёте (нoclip)",
+    Name = "Нет коллизий при полёте (noclip)",
     CurrentValue = false,
     Flag = "NoClipToggle",
     Callback = function(val)
         NoClip = val
-        if val and CarFly then
-            startNoClip()
-        elseif not val then
-            stopNoClip()
-        end
+        if val and CarFly then startNoClip()
+        elseif not val then stopNoClip() end
     end,
 })
 
@@ -532,9 +727,7 @@ SettingsTab:CreateSlider({
     Suffix = " studs/s",
     CurrentValue = FLY_SPEED,
     Flag = "FlySpeedSlider",
-    Callback = function(val)
-        FLY_SPEED = val
-    end,
+    Callback = function(val) FLY_SPEED = val end,
 })
 
 SettingsTab:CreateSlider({
@@ -544,11 +737,13 @@ SettingsTab:CreateSlider({
     Suffix = " studs",
     CurrentValue = MAX_FLY_HEIGHT,
     Flag = "MaxHeightSlider",
-    Callback = function(val)
-        MAX_FLY_HEIGHT = val
-    end,
+    Callback = function(val) MAX_FLY_HEIGHT = val end,
 })
 
 SettingsTab:CreateLabel("Урон от торнадо = proximity зона + Freefall state")
 SettingsTab:CreateLabel("Защита: все airborne-стейты выкл + heal loop каждый кадр")
 SettingsTab:CreateLabel("Высота ограничена чтобы не влетать в тело торнадо")
+
+
+
+ 
